@@ -4,6 +4,11 @@
 # 用法（在服务器上以 root 运行）：
 #   curl -fsSL https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/install.sh | sudo bash
 #
+# 服务器连不上 GitHub 时（国内服务器常见）：把项目包上传到服务器，解压后在项目目录里运行
+#   sudo bash install.sh
+#
+# 已安装宝塔等面板、已有 MySQL 时，会直接使用现有的 MySQL（需要输入它的 root 密码）。
+#
 # 可用环境变量修改默认值，例如：
 #   curl -fsSL .../install.sh | sudo PORT=9000 APP_TIMEZONE=Asia/Shanghai bash
 #
@@ -46,12 +51,33 @@ askpw() { # 输入时不显示
 [ "$(id -u)" -eq 0 ] || die "请用 root 运行：curl -fsSL <地址> | sudo bash"
 
 # ------------------------------------------------------------ 1. 安装软件
-say "安装系统软件（git、Python、MySQL）"
+# 已有 MySQL（宝塔面板装的，或者 3306 端口已经有数据库在运行）时不再另装，避免两个 MySQL 冲突
+EXISTING_DB=""
+MYSQL_BIN="mysql"
+if [ -x /www/server/mysql/bin/mysql ]; then
+  EXISTING_DB="宝塔面板的 MySQL"
+  MYSQL_BIN="/www/server/mysql/bin/mysql"
+elif (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -qE '[:.]3306[[:space:]]'; then
+  EXISTING_DB="3306 端口上已运行的数据库"
+fi
+[ -n "$EXISTING_DB" ] && echo "检测到${EXISTING_DB}，将直接使用，不再另装 MySQL"
+
+if [ -n "$EXISTING_DB" ]; then say "安装系统软件（git、Python）"; else say "安装系统软件（git、Python、MySQL）"; fi
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
+  # 之前装了一半的系统 MySQL（和已有的 MySQL 冲突导致失败）会让 apt 一直报错，先卸掉
+  if [ -n "$EXISTING_DB" ] && dpkg -l mysql-server-8.0 2>/dev/null | grep -qE '^(iU|iF|iH|rF|rU|pF)'; then
+    warn "清理之前装了一半的系统 MySQL（mysql-server-8.0），不影响${EXISTING_DB}"
+    apt-get remove -y mysql-server mysql-server-8.0 || dpkg --remove --force-depends mysql-server mysql-server-8.0 || true
+  fi
+  if [ -z "$EXISTING_DB" ] && dpkg -l mysql-server-8.0 2>/dev/null | grep -qE '^(iU|iF|iH)'; then
+    warn "系统 MySQL 上次没装完，尝试继续配置"
+    dpkg --configure -a || die "MySQL 配置失败。请运行下面的命令，把输出发给开发者：
+  journalctl -u mysql -n 50 --no-pager; tail -n 50 /var/log/mysql/error.log"
+  fi
   apt-get update -y
   apt-get install -y git curl python3 python3-venv python3-pip
-  if ! command -v mysqld >/dev/null 2>&1 && ! command -v mariadbd >/dev/null 2>&1; then
+  if [ -z "$EXISTING_DB" ] && ! command -v mysqld >/dev/null 2>&1 && ! command -v mariadbd >/dev/null 2>&1; then
     if apt-cache show mysql-server >/dev/null 2>&1; then
       apt-get install -y mysql-server
     else
@@ -61,7 +87,7 @@ if command -v apt-get >/dev/null 2>&1; then
   fi
 elif command -v dnf >/dev/null 2>&1; then
   dnf install -y git curl python3 python3-pip
-  if ! command -v mysqld >/dev/null 2>&1 && ! command -v mariadbd >/dev/null 2>&1; then
+  if [ -z "$EXISTING_DB" ] && ! command -v mysqld >/dev/null 2>&1 && ! command -v mariadbd >/dev/null 2>&1; then
     dnf install -y mysql-server || dnf install -y mariadb-server
   fi
 else
@@ -78,35 +104,57 @@ done
 [ -n "$PY" ] || die "需要 Python 3.9 及以上。dnf 系统可以：dnf install -y python3.11"
 echo "使用 $("$PY" --version)"
 
-say "启动数据库服务"
-for s in mysql mysqld mariadb; do
-  if systemctl list-unit-files "$s.service" >/dev/null 2>&1 && systemctl list-unit-files "$s.service" | grep -q "$s.service"; then
-    systemctl enable --now "$s" && break
-  fi
-done
-for _ in $(seq 1 30); do mysqladmin ping >/dev/null 2>&1 && break; sleep 1; done
+if [ -z "$EXISTING_DB" ]; then
+  say "启动数据库服务"
+  for s in mysql mysqld mariadb; do
+    if systemctl list-unit-files "$s.service" 2>/dev/null | grep -q "$s.service"; then
+      systemctl enable --now "$s" && break
+    fi
+  done
+  for _ in $(seq 1 30); do mysqladmin ping >/dev/null 2>&1 && break; sleep 1; done
+fi
+
+# 连不上 PyPI 官方源时，改用阿里云镜像安装 Python 依赖
+if [ -z "${PIP_INDEX_URL:-}" ] && ! curl -s -m 8 -o /dev/null https://pypi.org/simple/pip/; then
+  export PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
+  echo "PyPI 访问较慢，改用镜像 $PIP_INDEX_URL"
+fi
 
 # ------------------------------------------------------------ 2. 下载项目
-say "下载项目到 $APP_DIR"
+say "准备项目文件 $APP_DIR"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
-if [ -d "$APP_DIR/.git" ]; then
-  echo "已安装过，保留现有代码（更新请运行 $APP_DIR/update.sh）"
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || pwd)"
+if [ -f "$APP_DIR/app.py" ]; then
+  echo "项目文件已在 ${APP_DIR}，保留现有代码（更新请运行 $APP_DIR/update.sh）"
+elif [ -f "$SRC_DIR/app.py" ] && [ "$SRC_DIR" != "$APP_DIR" ]; then
+  echo "使用上传的项目文件：$SRC_DIR"
+  mkdir -p "$APP_DIR"
+  cp -a "$SRC_DIR/." "$APP_DIR/"
+  rm -rf "$APP_DIR/.venv"
 else
   [ -e "$APP_DIR" ] && [ -n "$(ls -A "$APP_DIR" 2>/dev/null)" ] && die "$APP_DIR 已存在且不是空目录"
-  git clone --branch "$BRANCH" "$REPO" "$APP_DIR"
+  git clone --branch "$BRANCH" "$REPO" "$APP_DIR" || die "从 GitHub 下载失败（国内服务器常见）。
+  可以把项目包上传到服务器，解压后进入项目目录运行：sudo bash install.sh"
 fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 run_as() { runuser -u "$APP_USER" -- "$@"; }
 
 # ------------------------------------------------------------ 3. 数据库
 say "准备数据库"
-MYSQL=(mysql --default-character-set=utf8mb4)
-if ! "${MYSQL[@]}" -e "SELECT 1" >/dev/null 2>&1; then
-  echo "无法免密码登录 MySQL 的 root。"
-  ROOTPW="$(askpw "请输入 MySQL root 密码：")"
-  MYSQL=(mysql --default-character-set=utf8mb4 -uroot "-p$ROOTPW")
+MYSQL=("$MYSQL_BIN" --default-character-set=utf8mb4)
+if ! "${MYSQL[@]}" -uroot -e "SELECT 1" >/dev/null 2>&1; then
+  echo "需要 MySQL 的 root 密码。宝塔面板：左侧“数据库” → 右上角“root 密码”里可以查看或修改。"
+  for _ in 1 2 3; do
+    ROOTPW="$(askpw "请输入 MySQL root 密码：")"
+    MYSQL=("$MYSQL_BIN" --default-character-set=utf8mb4 -uroot "-p$ROOTPW")
+    "${MYSQL[@]}" -e "SELECT 1" >/dev/null 2>&1 && break
+    echo "密码不对，请重试。"
+  done
   "${MYSQL[@]}" -e "SELECT 1" >/dev/null 2>&1 || die "MySQL root 登录失败"
+else
+  MYSQL=("$MYSQL_BIN" --default-character-set=utf8mb4 -uroot)
 fi
+echo "MySQL 版本：$("${MYSQL[@]}" -N -e "SELECT VERSION()")"
 
 if "${MYSQL[@]}" -N -e "SELECT 1 FROM information_schema.tables WHERE table_schema='$DB_NAME' AND table_name='schedule'" | grep -q 1; then
   echo "数据库 $DB_NAME 已存在，保留现有数据"

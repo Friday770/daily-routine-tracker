@@ -56,6 +56,18 @@ journalctl -u daily-routine -f        # 查看日志
 sudo systemctl restart daily-routine  # 重启（改了 .env 之后）
 ```
 
+### 国内服务器 / 宝塔面板
+
+- **连不上 GitHub**（`curl: (35) Connection reset by peer` 等）：在自己电脑上下载项目包（GitHub 页面 Code → Download ZIP，或开发者提供的 `daily-routine-tracker.tar.gz`），用宝塔“文件”或 scp 上传到服务器并解压，然后在项目目录里运行：
+
+  ```bash
+  sudo PORT=9090 bash install.sh
+  ```
+
+- **已经装了宝塔的 MySQL**：安装脚本会自动使用它，不再另装一个；运行时输入它的 root 密码（宝塔“数据库”页面右上角“root 密码”）。之前装失败、留下一半的系统 MySQL 也会被自动清理。
+- **Python 依赖下载慢**：脚本会自动改用阿里云的 PyPI 镜像。
+- **在线更新**需要服务器能访问 GitHub；连不上时，网页上不会出现更新提示，可以照上面的方法上传新版本的项目包，解压覆盖后运行 `sudo systemctl restart daily-routine`。
+
 ## 更新
 
 GitHub 上有新版本时：

@@ -68,6 +68,13 @@ journalctl -u daily-routine -f          # logs
 sudo systemctl restart daily-routine    # restart after editing .env
 ```
 
+### Servers in mainland China / BaoTa panel
+
+- **GitHub unreachable** (e.g. `curl: (35) Connection reset by peer`): download the project (Code → Download ZIP, or a provided `daily-routine-tracker.tar.gz`), upload and extract it on the server, then run inside the project folder: `sudo PORT=9090 bash install.sh`
+- **MySQL already installed by BaoTa**: the installer uses it instead of installing a second MySQL, and asks for its root password. A half-installed system MySQL from an earlier failed run is removed automatically.
+- **Slow PyPI**: the installer switches to the Aliyun PyPI mirror automatically.
+- **Online updates** need access to GitHub. Without it, upload a newer package, extract it over the install directory and run `sudo systemctl restart daily-routine`.
+
 ## Updating
 
 When a new version is pushed to GitHub:
