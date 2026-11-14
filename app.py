@@ -312,8 +312,8 @@ STARTED_VERSION = current_version()
 
 
 def read_release(text: str) -> str:
-    v = (text or "").strip()
-    return f"v{v}" if v and not v.startswith("v") else (v or "")
+    v = (text or "").strip().lstrip("vV")
+    return f"V{v}" if v else ""
 
 
 # 发布版本号（VERSION 文件，如 1.2）；STARTED_VERSION 是具体的提交编号

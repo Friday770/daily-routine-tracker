@@ -1326,7 +1326,7 @@ let upd=null;
 const UKEY="routine.skipUpdate";
 async function checkUpdate(force){
   try{
-    const v=await api("/version");$("ver").textContent=(v.release?v.release+" · ":"版本 ")+v.version;
+    const v=await api("/version");$("ver").textContent=v.release||("版本 "+v.version);$("ver").title="提交 "+v.version;
     upd=await api(`/update/check${force?"?force=true":""}`);
   }catch(_){return}
   let skip=null;try{skip=localStorage.getItem(UKEY)}catch(_){}
