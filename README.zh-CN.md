@@ -25,17 +25,18 @@ daily-routine-tracker/
 支持 Ubuntu / Debian 和 Rocky / AlmaLinux / CentOS Stream / Fedora。在服务器上运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/install.sh | sudo bash
+curl -fsSL --retry 5 --retry-all-errors -o install.sh https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/install.sh
+sudo bash install.sh
 ```
 
 脚本会：安装 git、Python、MySQL → 下载项目到 `/opt/daily-routine-tracker` → 导入干净的数据库，并新建数据库账号（随机密码）→ 生成 `.env` → 安装依赖 → 注册系统服务 `daily-routine`（开机自启、崩溃自动重启）→ 放行防火墙端口。安装过程中会问你是否设置**网页访问密码**：网页本身没有账号，公网服务器强烈建议设置。
 
 安装完成后打开 `http://服务器IP:8000`。云服务器还需要在控制台的安全组里放行 8000 端口。
 
-可以用环境变量修改默认值，例如换端口：
+可以用环境变量修改默认值，例如换端口（先用上面的 curl 下载好 install.sh）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/install.sh | sudo PORT=9000 bash
+sudo PORT=9000 bash install.sh
 ```
 
 | 变量 | 默认值 | 说明 |
@@ -47,6 +48,8 @@ curl -fsSL https://raw.githubusercontent.com/Friday770/daily-routine-tracker/mai
 | `APP_USER` | `routine` | 运行服务的系统用户 |
 
 重复运行安装脚本是安全的：已有的数据库和配置会保留。
+
+**已有 MySQL 时不会重复安装**：服务器上已经有 MySQL / MariaDB（包括宝塔面板装的、正在运行的、已安装但没启动的）时，脚本会直接使用它，只在缺少 `mysql` 命令行工具时补装客户端；运行时输入它的 root 密码即可。
 
 常用命令：
 

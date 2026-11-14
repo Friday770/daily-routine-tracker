@@ -39,17 +39,18 @@ daily-routine-tracker/
 Supports Ubuntu / Debian and Rocky / AlmaLinux / CentOS Stream / Fedora. On the server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/install.sh | sudo bash
+curl -fsSL --retry 5 --retry-all-errors -o install.sh https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/install.sh
+sudo bash install.sh
 ```
 
 The script installs git, Python and MySQL, clones the project to `/opt/daily-routine-tracker`, imports the clean database and creates a database user with a random password, writes `.env`, installs the Python packages, registers the `daily-routine` systemd service (starts on boot, restarts on crash) and opens the firewall port. It asks whether to set a **web access password**. The app has no user accounts, so set one if the server is reachable from the internet.
 
 Then open `http://SERVER_IP:8000`. On a cloud server, also allow port 8000 in the provider's security group.
 
-Defaults can be changed with environment variables:
+Defaults can be changed with environment variables (after downloading install.sh as above):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/install.sh | sudo PORT=9000 bash
+sudo PORT=9000 bash install.sh
 ```
 
 | Variable | Default | Meaning |
@@ -61,6 +62,8 @@ curl -fsSL https://raw.githubusercontent.com/Friday770/daily-routine-tracker/mai
 | `APP_USER` | `routine` | system user that runs the service |
 
 Running the installer again is safe: an existing database and `.env` are kept.
+
+**An existing MySQL is never reinstalled**: if MySQL or MariaDB is already present (BaoTa, running, or installed but stopped), the installer uses it and only adds the `mysql` client if missing; it asks for that server's root password.
 
 ```bash
 systemctl status daily-routine          # status
