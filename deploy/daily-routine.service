@@ -1,0 +1,27 @@
+# systemd 服务：开机自动启动、崩溃自动重启
+# 用 install.sh 安装时会自动生成并注册本服务，不需要手动操作。
+# 手动安装时（把 /opt/daily-routine-tracker 和 routine 换成你的实际目录和运行用户）：
+#   sudo cp deploy/daily-routine.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now daily-routine
+# 查看状态 / 日志：
+#   systemctl status daily-routine
+#   journalctl -u daily-routine -f
+
+[Unit]
+Description=Daily Routine check-in (FastAPI)
+After=network.target mysql.service mysqld.service
+
+[Service]
+Type=simple
+User=routine
+WorkingDirectory=/opt/daily-routine-tracker
+ExecStart=/opt/daily-routine-tracker/.venv/bin/python app.py
+Restart=always
+RestartSec=2
+Environment=HOME=/opt/daily-routine-tracker
+# 只能运行 1 个进程：实时同步的变更通知保存在进程内存里
+# Restart=always 也用于在线更新：更新脚本结束旧进程后，systemd 会用新代码重新启动
+
+[Install]
+WantedBy=multi-user.target
