@@ -28,10 +28,18 @@ die() { log "错误：$*"; exit 1; }
 
 [ -d .git ] || die "当前目录不是 git 仓库，请用 install.sh 安装后再在线更新"
 
-# 用 root 运行时，以项目目录的所有者身份执行 git / pip，避免改乱文件权限
+IN_DOCKER="${RUNNING_IN_DOCKER:-0}"   # 在 Docker 容器里运行（网页上点“立即更新”时）
+# 服务器上用 Docker 部署、在宿主机上运行本脚本时
+ON_DOCKER_HOST=0
+if [ "$IN_DOCKER" != "1" ] && [ -f docker-compose.yml ] && command -v docker >/dev/null 2>&1 \
+   && [ -n "$(docker compose ps -q app 2>/dev/null)" ]; then
+  ON_DOCKER_HOST=1
+fi
+
+# 用 root 运行时，以项目目录的所有者身份执行 git / pip，避免改乱文件权限（容器里不需要）
 OWNER="$(stat -c %U . 2>/dev/null || stat -f %Su .)"
 as_owner() {
-  if [ "$(id -u)" -eq 0 ] && [ "$OWNER" != "root" ]; then
+  if [ "$IN_DOCKER" != "1" ] && [ "$(id -u)" -eq 0 ] && [ "$OWNER" != "root" ]; then
     runuser -u "$OWNER" -- "$@"
   else
     "$@"
@@ -60,19 +68,39 @@ if [ "$YES" -ne 1 ]; then
   case "$ans" in y|Y|yes|YES) ;; *) echo "已取消。"; exit 0 ;; esac
 fi
 
+CHANGED="$(as_owner git diff --name-only HEAD "origin/$BRANCH")"
 log "下载新版本..."
 as_owner git merge --ff-only "origin/$BRANCH" \
   || die "服务器上的代码被手动改过，无法自动合并。请先处理（git status 查看），或运行：git reset --hard origin/$BRANCH"
 
-if [ -x .venv/bin/python ]; then
+if [ "$IN_DOCKER" = "1" ]; then
+  # 容器里以 root 拉取的文件，改回项目目录原来的所有者，免得宿主机上改不了
+  chown -R "$(stat -c %u:%g .)" . 2>/dev/null || true
+  if printf '%s\n' "$CHANGED" | grep -qx requirements.txt; then
+    log "安装依赖..."
+    python -m pip install --quiet --disable-pip-version-check -r requirements.txt || die "依赖安装失败"
+  fi
+  if printf '%s\n' "$CHANGED" | grep -qxE 'Dockerfile|docker-compose.yml'; then
+    log "注意：这次更新修改了 Docker 配置，请在服务器上运行：cd 项目目录 && docker compose up -d --build"
+  fi
+elif [ -x .venv/bin/python ]; then
   log "安装依赖..."
   as_owner .venv/bin/python -m pip install --quiet --disable-pip-version-check -r requirements.txt \
     || die "依赖安装失败"
 fi
 
 log "重启后端..."
-if [ "$FROM_APP" -eq 1 ] && [ -n "$APP_PID" ]; then
-  if [ -n "${INVOCATION_ID:-}" ]; then
+if [ "$ON_DOCKER_HOST" -eq 1 ]; then
+  if printf '%s\n' "$CHANGED" | grep -qxE 'requirements.txt|Dockerfile|docker-compose.yml'; then
+    docker compose up -d --build
+  else
+    docker compose restart app
+  fi
+elif [ "$FROM_APP" -eq 1 ] && [ -n "$APP_PID" ]; then
+  if [ "$IN_DOCKER" = "1" ]; then
+    # Docker 容器里：结束后端进程，容器随之退出，Docker 按 restart: unless-stopped 自动用新代码重启
+    kill "$APP_PID" 2>/dev/null || true
+  elif [ -n "${INVOCATION_ID:-}" ]; then
     # 由 systemd 管理：结束旧进程后 systemd 会自动用新代码重启（Restart=always）
     kill "$APP_PID" 2>/dev/null || true
   else

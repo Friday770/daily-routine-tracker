@@ -1,4 +1,4 @@
-# DailyRoutineTracker
+# DailyRoutineTracker v1.2
 
 English | [中文](README.zh-CN.md)
 
@@ -15,7 +15,8 @@ The UI text is in Chinese.
 - Daily and weekly stats: check-in rate, study completion rate, hours per task, bar + line charts
 - Real-time sync between devices (Server-Sent Events)
 - One-command server install, and in-app update notices with one-click update
-- Configurable time zone, optional access password
+- Docker deployment (app + MySQL containers)
+- Configurable time zone
 - Mobile friendly; works well on iPhone and can be added to the home screen
 
 **Tech stack:** Python (FastAPI, Uvicorn, PyMySQL) · MySQL 8 · plain HTML/CSS/JavaScript, no build step
@@ -28,13 +29,34 @@ daily-routine-tracker/
 ├── migrations/            future schema changes, applied automatically on start
 ├── requirements.txt
 ├── .env.example           configuration template
-├── install.sh             one-command server install
+├── Dockerfile, docker-compose.yml   Docker deployment
+├── docker-install.sh      one-command Docker deployment
+├── install.sh             one-command install without Docker
 ├── update.sh              check for and install new versions
 ├── setup.sh / init_db.sh / start.sh   for manual installs
 └── deploy/                systemd unit and nginx example
 ```
 
-## Install on a Linux server
+## Deploy with Docker (recommended)
+
+Requires Docker with the compose plugin on the server. Run:
+
+```bash
+curl -fsSL --retry 5 --retry-all-errors -o docker-install.sh https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/docker-install.sh
+sudo bash docker-install.sh
+```
+
+The default port is 9090; change it with `sudo HOST_PORT=8080 bash docker-install.sh`. The script clones the project to `/opt/daily-routine-tracker`, writes `.env` with random database passwords and starts two containers: `app` (web + backend) and `db` (a separate MySQL 8.4 with its data in a Docker volume; an existing MySQL on the host is not touched). Both restart automatically.
+
+```bash
+docker compose ps              # status   (run in /opt/daily-routine-tracker)
+docker compose logs -f app     # logs
+docker compose restart app     # restart
+```
+
+**Updating:** click "立即更新" when the page shows a new version; the container pulls the code, applies migrations and restarts itself. Or run `sudo ./update.sh` on the server.
+
+## Install without Docker
 
 Supports Ubuntu / Debian and Rocky / AlmaLinux / CentOS Stream / Fedora. On the server:
 
@@ -43,7 +65,7 @@ curl -fsSL --retry 5 --retry-all-errors -o install.sh https://raw.githubusercont
 sudo bash install.sh
 ```
 
-The script installs git, Python and MySQL, clones the project to `/opt/daily-routine-tracker`, imports the clean database and creates a database user with a random password, writes `.env`, installs the Python packages, registers the `daily-routine` systemd service (starts on boot, restarts on crash) and opens the firewall port. It asks whether to set a **web access password**. The app has no user accounts, so set one if the server is reachable from the internet.
+The script installs git, Python and MySQL, clones the project to `/opt/daily-routine-tracker`, imports the clean database and creates a database user with a random password, writes `.env`, installs the Python packages, registers the `daily-routine` systemd service (starts on boot, restarts on crash) and opens the firewall port.
 
 Then open `http://SERVER_IP:8000`. On a cloud server, also allow port 8000 in the provider's security group.
 
@@ -58,7 +80,6 @@ sudo PORT=9000 bash install.sh
 | `APP_DIR` | `/opt/daily-routine-tracker` | install directory |
 | `PORT` | `8000` | web port |
 | `APP_TIMEZONE` | `Asia/Shanghai` | time zone used everywhere |
-| `APP_PASSWORD` | asked during install | web access password |
 | `APP_USER` | `routine` | system user that runs the service |
 
 Running the installer again is safe: an existing database and `.env` are kept.
@@ -96,7 +117,6 @@ The server checks for updates every 30 minutes. Check-in data lives in MySQL and
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | MySQL connection |
 | `HOST`, `PORT` | listen address and port (`127.0.0.1` when behind nginx) |
 | `APP_TIMEZONE` | time zone for the page, check-in rules and stats, e.g. `Asia/Shanghai` |
-| `APP_PASSWORD` | optional web access password (any user name) |
 
 For a domain name and HTTPS, see `deploy/nginx.conf`. Keep its `/api/events` block: it disables buffering, which real-time sync needs. Run only one backend process.
 

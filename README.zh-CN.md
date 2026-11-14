@@ -1,4 +1,4 @@
-# DailyRoutineTracker（作息打卡）
+# DailyRoutineTracker（作息打卡）v1.2
 
 [English](README.md) | 中文
 
@@ -14,13 +14,42 @@ daily-routine-tracker/
 ├── migrations/                  以后的数据库变更（启动时自动执行）
 ├── requirements.txt             Python 依赖
 ├── .env.example                 配置模板
-├── install.sh                   服务器一键安装
+├── Dockerfile / docker-compose.yml   Docker 部署
+├── docker-install.sh            Docker 一键部署
+├── install.sh                   不用 Docker 时的一键安装
 ├── update.sh                    检查并安装新版本
 ├── setup.sh / init_db.sh / start.sh   手动安装用
 └── deploy/                      systemd 服务、nginx 配置示例
 ```
 
-## 一键安装（Linux 服务器）
+## 用 Docker 部署（推荐）
+
+服务器上需要已安装 Docker（宝塔面板可在“Docker”里一键安装）。运行：
+
+```bash
+curl -fsSL --retry 5 --retry-all-errors -o docker-install.sh https://raw.githubusercontent.com/Friday770/daily-routine-tracker/main/docker-install.sh
+sudo bash docker-install.sh
+```
+
+默认端口 9090，换端口：`sudo HOST_PORT=8080 bash docker-install.sh`。
+
+脚本会把项目下载到 `/opt/daily-routine-tracker`，生成 `.env`（数据库密码随机生成），然后启动两个容器：
+- `app`：网页和后端；
+- `db`：独立的 MySQL 8.4，数据保存在 Docker 数据卷里，不会碰服务器上已有的 MySQL（包括宝塔的）。
+
+容器设置了自动重启，服务器重启后也会自动运行。打开 `http://服务器IP:9090`；云服务器要在安全组里放行这个端口。绑定域名时，宝塔反向代理的目标填 `http://127.0.0.1:9090`。
+
+常用命令（在 `/opt/daily-routine-tracker` 下）：
+
+```bash
+docker compose ps              # 状态
+docker compose logs -f app     # 日志
+docker compose restart app     # 重启
+```
+
+**更新**：网页上出现“发现新版本”时点“立即更新”即可，容器会自动拉取新代码、执行数据库变更并重启。也可以在服务器上运行 `sudo ./update.sh`。
+
+## 不用 Docker：一键安装（Linux 服务器）
 
 支持 Ubuntu / Debian 和 Rocky / AlmaLinux / CentOS Stream / Fedora。在服务器上运行：
 
@@ -29,9 +58,7 @@ curl -fsSL --retry 5 --retry-all-errors -o install.sh https://raw.githubusercont
 sudo bash install.sh
 ```
 
-脚本会：安装 git、Python、MySQL → 下载项目到 `/opt/daily-routine-tracker` → 导入干净的数据库，并新建数据库账号（随机密码）→ 生成 `.env` → 安装依赖 → 注册系统服务 `daily-routine`（开机自启、崩溃自动重启）→ 放行防火墙端口。安装过程中会问你是否设置**网页访问密码**：网页本身没有账号，公网服务器强烈建议设置。
-
-安装完成后打开 `http://服务器IP:8000`。云服务器还需要在控制台的安全组里放行 8000 端口。
+脚本会：安装 git、Python、MySQL → 下载项目到 `/opt/daily-routine-tracker` → 导入干净的数据库，并新建数据库账号（随机密码）→ 生成 `.env` → 安装依赖 → 注册系统服务 `daily-routine`（开机自启、崩溃自动重启）→ 放行防火墙端口。安装完成后打开 `http://服务器IP:8000`。云服务器还需要在控制台的安全组里放行 8000 端口。
 
 可以用环境变量修改默认值，例如换端口（先用上面的 curl 下载好 install.sh）：
 
@@ -44,7 +71,6 @@ sudo PORT=9000 bash install.sh
 | `APP_DIR` | `/opt/daily-routine-tracker` | 安装目录 |
 | `PORT` | `8000` | 网页端口 |
 | `APP_TIMEZONE` | `Asia/Shanghai` | 统一时区 |
-| `APP_PASSWORD` | 安装时询问 | 网页访问密码 |
 | `APP_USER` | `routine` | 运行服务的系统用户 |
 
 重复运行安装脚本是安全的：已有的数据库和配置会保留。
@@ -123,7 +149,7 @@ sudo mysql -e "CREATE USER 'routine'@'localhost' IDENTIFIED BY '换成你的密�
 nano .env
 ```
 
-在 `.env` 里填 `DB_PASSWORD`（上一步设的密码）。**公网服务器建议设置 `APP_PASSWORD`**：网页本身没有账号，不设密码的话，知道地址的人都能打开并打卡。
+在 `.env` 里填 `DB_PASSWORD`（上一步设的密码）。
 
 #### 5. 先试运行
 

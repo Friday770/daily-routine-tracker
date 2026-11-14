@@ -17,7 +17,6 @@
 #   APP_USER      运行服务的系统用户  默认 routine
 #   PORT          网页端口            默认 8000
 #   APP_TIMEZONE  统一时区            默认 Asia/Shanghai
-#   APP_PASSWORD  网页访问密码        默认空（安装时会询问）
 #   REPO / BRANCH GitHub 仓库和分支
 #
 # 支持 Ubuntu / Debian（apt）和 Rocky / AlmaLinux / CentOS Stream / Fedora（dnf）。
@@ -30,7 +29,6 @@ APP_DIR="${APP_DIR:-/opt/daily-routine-tracker}"
 APP_USER="${APP_USER:-routine}"
 PORT="${PORT:-8000}"
 APP_TIMEZONE="${APP_TIMEZONE:-Asia/Shanghai}"
-APP_PASSWORD="${APP_PASSWORD-__ask__}"
 SERVICE="daily-routine"
 DB_NAME="daily_routine"
 DB_USER="routine"
@@ -230,14 +228,6 @@ echo "数据库账号 $DB_USER 已就绪（密码随机生成，保存在 .env�
 
 # ------------------------------------------------------------ 4. 配置 .env
 say "生成配置 $ENV"
-if [ "$APP_PASSWORD" = "__ask__" ]; then
-  if [ -f "$ENV" ]; then
-    APP_PASSWORD="$(grep -E '^APP_PASSWORD=' "$ENV" | cut -d= -f2- || true)"
-  else
-    echo "网页本身没有账号。设置访问密码后，打开网页需要输入它（用户名随便填）；公网服务器强烈建议设置。"
-    APP_PASSWORD="$(askpw "设置网页访问密码（直接回车 = 不设置）：")"
-  fi
-fi
 cat > "$ENV" <<EOF
 # 由 install.sh 生成。修改后运行：sudo systemctl restart $SERVICE
 DB_HOST=127.0.0.1
@@ -249,7 +239,6 @@ DB_NAME=$DB_NAME
 HOST=0.0.0.0
 PORT=$PORT
 APP_TIMEZONE=$APP_TIMEZONE
-APP_PASSWORD=$APP_PASSWORD
 EOF
 chown "$APP_USER:$APP_USER" "$ENV"
 chmod 600 "$ENV"
@@ -304,7 +293,6 @@ IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [ "$ok" -eq 1 ]; then
   say "安装完成"
   echo "  打开：http://${IP:-服务器IP}:$PORT"
-  [ -n "$APP_PASSWORD" ] && echo "  访问密码：已设置（用户名随便填）" || warn "没有设置访问密码，知道地址的人都能打开。可在 $ENV 里设置 APP_PASSWORD"
   echo "  云服务器还需要在控制台的安全组里放行 $PORT 端口"
   echo
   echo "  常用命令："

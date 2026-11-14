@@ -1,0 +1,49 @@
+# DailyRoutineTracker：后端 + MySQL
+#   启动：docker compose up -d --build
+#   日志：docker compose logs -f app
+# 配置写在同目录的 .env 里（docker-install.sh 会自动生成）
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 里设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: daily_routine
+      MYSQL_USER: ${DB_USER:-routine}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?请在 .env 里设置 DB_PASSWORD}
+      TZ: ${APP_TIMEZONE:-Asia/Shanghai}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - db-data:/var/lib/mysql
+      # 第一次启动（数据卷为空）时自动导入干净的数据库
+      - ./daily_routine.sql:/docker-entrypoint-initdb.d/01-daily_routine.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  app:
+    build:
+      context: .
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      HOST: 0.0.0.0
+      PORT: "8000"
+    ports:
+      - "${HOST_PORT:-9090}:8000"
+    volumes:
+      # 代码目录挂载进容器：在线更新（git pull）后，容器重启就用上新代码
+      - ./:/app
+
+volumes:
+  db-data:

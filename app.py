@@ -7,8 +7,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import hmac
 import datetime as dt
 import json
 import os
@@ -236,29 +234,6 @@ def check_date_window(d: dt.date) -> None:
 # ---------------------------------------------------------------- 应用
 app = FastAPI(title="作息打卡", docs_url="/api/docs", redoc_url=None)
 
-# 访问密码（可选）：.env 里设置 APP_PASSWORD 后，打开网页时浏览器会弹出登录框，
-# 用户名随便填，密码填 APP_PASSWORD。部署到公网服务器时建议设置。不设置则不需要登录。
-APP_PASSWORD = os.getenv("APP_PASSWORD", "")
-
-
-@app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    if APP_PASSWORD and request.url.path != "/apple-touch-icon.png":
-        ok = False
-        h = request.headers.get("authorization", "")
-        if h.lower().startswith("basic "):
-            try:
-                pw = base64.b64decode(h[6:]).decode("utf-8").split(":", 1)[1]
-                ok = hmac.compare_digest(pw, APP_PASSWORD)
-            except Exception:
-                ok = False
-        if not ok:
-            return JSONResponse(
-                {"detail": "需要登录"}, status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="daily-routine", charset="UTF-8"'},
-            )
-    return await call_next(request)
-
 
 # ---------------------------------------------------------------- 实时同步
 # 任何一端打卡（开始、结束、补打卡、跳过、撤销）后计数加一，所有打开的页面通过 /api/events 立即收到并刷新。
@@ -336,13 +311,22 @@ def current_version() -> str:
 STARTED_VERSION = current_version()
 
 
+def read_release(text: str) -> str:
+    v = (text or "").strip()
+    return f"v{v}" if v and not v.startswith("v") else (v or "")
+
+
+# 发布版本号（VERSION 文件，如 1.2）；STARTED_VERSION 是具体的提交编号
+RELEASE = read_release((BASE_DIR / "VERSION").read_text(encoding="utf-8") if (BASE_DIR / "VERSION").exists() else "")
+
+
 def check_updates(force: bool = False) -> dict:
     if not is_git_repo():
         return {"enabled": False, "current": STARTED_VERSION, "available": False,
                 "reason": "不是从 GitHub 安装的，无法在线更新"}
     if not force and _update["data"] and time.time() - _update["checked"] < UPDATE_CHECK_SEC:
         return {**_update["data"], "running": _update["running"]}
-    data = {"enabled": True, "current": STARTED_VERSION, "available": False, "behind": 0, "changes": []}
+    data = {"enabled": True, "current": STARTED_VERSION, "release": RELEASE, "available": False, "behind": 0, "changes": []}
     try:
         r = git("fetch", "--quiet", "origin", UPDATE_BRANCH)
         if r.returncode != 0:
@@ -352,6 +336,7 @@ def check_updates(force: bool = False) -> dict:
             behind = int(git("rev-list", "--count", f"HEAD..{ref}").stdout.strip() or 0)
             data.update(
                 latest=git("rev-parse", "--short", ref).stdout.strip(),
+                latest_release=read_release(git("show", f"{ref}:VERSION").stdout),
                 behind=behind,
                 available=behind > 0,
                 changes=[x for x in git("log", "--format=%h %s", "-n", "20", f"HEAD..{ref}").stdout.splitlines() if x],
@@ -364,7 +349,7 @@ def check_updates(force: bool = False) -> dict:
 
 @app.get("/api/version")
 def version():
-    return {"version": STARTED_VERSION}
+    return {"version": STARTED_VERSION, "release": RELEASE}
 
 
 @app.get("/api/update/check")
@@ -640,7 +625,7 @@ if __name__ == "__main__":
     import uvicorn
 
     run_migrations()
-    print(f"作息打卡 版本 {STARTED_VERSION}")
+    print(f"作息打卡 {RELEASE or ''} 版本 {STARTED_VERSION}")
     uvicorn.run(
         app,
         host=os.getenv("HOST", "0.0.0.0"),
